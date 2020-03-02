@@ -1,0 +1,202 @@
+---
+title: "Partie 2 Projet MRR"
+author: "DURAND Lénaïc, SHI DE MILLEVILLE Guillaume"
+date: "Binôme n°1, dataset Behavior of the urban traffic of the city of Sao Paulo in Brazil"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(MASS)
+library(caret)
+library(glmnet)
+library(tidyr)
+library(dplyr)
+library("cowplot")
+library("gridExtra")
+library(gridExtra)
+```
+
+
+<!-- DIFFERENTS MODELES POSSIBLES : OLS, modèle linéaire (résidu gaussien), Ridge (contrainte), Lasso (contrainte absolue) -->
+
+# Introduction
+
+Dans la partie précédente, nous avons présenté le problème et les données utilisées. Nous avions aussi présenté les variables explicatives sur lesquelles nous souhaitions travailler : __*Hour*__, __*Lack of electricity*__, __*Point of flooding*__ et __*Semaphore off*__. Le but de cette partie est d'expliquer la méthodologie suivie pour trouver le meilleur modèle possible.
+
+Tout d'abord, nous allons comparer les variables explicatives obtenues avec un algorithme de sélection à celles que nous avions sélectionnées manuellement. Par exemple avec la méthode __stepwise__, nous trouvons les variables __*Hour*__, __*Lack of electricity*__, __*Point of flooding*__ et __*Manifestations*__, ce qui correspond a 75% à notre analyse en amont. 
+Ensuite, nous présenterons un second modèle de classification. 
+
+# Régression
+
+Nous commençons par regarder les résultats donnés par d'autres types de modèles sélectifs, tels que ridge et lasso. Pour cela nous effectuons d'abord une validation croisée pour trouver le paramètre $\lambda$ optimal, c'est-à-dire celui qui minimise l'erreur.
+
+```{r, echo=FALSE}
+tab <- read.table("datakronk.csv", header=TRUE, sep=";")
+tab[1] = 6.5 + 0.5*tab[1]
+# tab[7] = exp(tab[7]*5)
+# tab[12] = exp(tab[12]*5)
+
+# tab = as.data.frame(scale(tab))
+
+X = tab[, -ncol(tab)]
+Xm = cbind(rep(1,nrow(X)), X)
+
+Y = as.data.frame(tab[18])
+Ym = as.matrix(Y)
+
+
+
+reg = lm(Slowness_in_traffic~., data=tab)
+Y0 = as.matrix(Xm)%*%as.matrix(coef(reg))
+g1 <- ggplot(data.frame(Y0, Ym), aes(Y0, Ym)) +
+    geom_point(aes(Y0, Ym)) +
+    geom_abline(slope=1, intercept=0) +
+    ggtitle("                       linear")
+
+
+
+ridgeCV = cv.glmnet(x=as.matrix(X), y=as.matrix(Y), alpha=0)
+ridge = glmnet(x=as.matrix(X), y=as.matrix(Y), alpha=0, lambda=ridgeCV$lambda.min)
+Yr = as.matrix(Xm)%*%as.matrix(coef(ridge))
+colnames(Yr) = c()
+g2 <- ggplot(data.frame(Yr, Ym), aes(Yr, Ym)) +
+    geom_point(aes(Yr, Ym)) +
+    geom_abline(slope=1, intercept=0) +
+    ggtitle("                       ridge")
+
+
+
+lassoCV = cv.glmnet(x=as.matrix(X), y=as.matrix(Y), alpha=1)
+lasso = glmnet(x=as.matrix(X), y=as.matrix(Y), alpha=0, lambda=lassoCV$lambda.min)
+Yl = as.matrix(Xm)%*%as.matrix(coef(lasso))
+colnames(Yl) = c()
+g3 <- ggplot(data.frame(Yl, Ym), aes(Yl, Ym)) +
+    geom_point(aes(Yl, Ym)) +
+    geom_abline(slope=1, intercept=0) +
+    ggtitle("                       lasso")
+
+
+
+step = step(reg, direction="both", trace=0)
+Ys = predict.lm(step)
+g4 <- ggplot(data.frame(Ys, Ym), aes(Ys, Ym)) +
+    geom_point(aes(Ys, Ym)) +
+    geom_abline(slope=1, intercept=0) +
+    ggtitle("                       step")
+
+
+
+
+# X2 = tab %>% select(Hour, Lack_of_electricity, Point_of_flooding, Manifestations) #Semaphore_off main, Manifestations step
+# X2m = cbind(rep(1,nrow(X2)), X2)
+# 
+# 
+# 
+# ridgeCV2 = cv.glmnet(x=as.matrix(X2), y=as.matrix(Y), alpha=0)
+# ridge2 = glmnet(x=as.matrix(X2), y=as.matrix(Y), alpha=0, lambda=ridgeCV2$lambda.min)
+# Yr2 = as.matrix(X2m)%*%as.matrix(coef(ridge2))
+# colnames(Yr2) = c()
+# g5 <- ggplot(data.frame(Yr2, Ym), aes(Yr2, Ym)) +
+#     geom_point(aes(Yr2, Ym)) +
+#     geom_abline(slope=1, intercept=0)
+# 
+# 
+# 
+# lassoCV2 = cv.glmnet(x=as.matrix(X2), y=as.matrix(Y), alpha=1)
+# lasso2 = glmnet(x=as.matrix(X2), y=as.matrix(Y), alpha=0, lambda=lassoCV2$lambda.min)
+# Yl2 = as.matrix(X2m)%*%as.matrix(coef(lasso2))
+# colnames(Yl2) = c()
+# g6 <- ggplot(data.frame(Yl2, Ym), aes(Yl2, Ym)) +
+#     geom_point(aes(Yl2, Ym)) +
+#     geom_abline(slope=1, intercept=0)
+
+
+
+grid.arrange(g1, g2, g3, g4, ncol=2, nrow = 2) #g5, g6, ncol=3, nrow = 2)
+
+colnames(Ym) = c()
+```
+
+Les $R^2$ correspondants aux graphes ci-dessus sont les suivants :
+
+```{r, echo=FALSE}
+data.frame(
+  Linear_R2 = R2(Y0, Ym),
+  Ridge_R2 = R2(Yr, Ym),
+  Lasso_R2 = R2(Yl, Ym),
+  Step_R2 = R2(Ys, Ym)#,
+  #Ridge2_R2 = R2(Yr2, Ym),
+  #Lasso2_R2 = R2(Yl2, Ym)
+)
+```
+
+La RMSE nous donne plus d'information sur l'efficacité de ces modèles. Le $R^2$ varie beaucoup en fonction de la variance et ne peut être interprétée que  difficilement.
+
+```{r, echo=FALSE}
+data.frame(
+  Linear_RMSE = RMSE(Y0, Ym),
+  Ridge_RMSE = RMSE(Yr, Ym),
+  Lasso_RMSE = RMSE(Yl, Ym),
+  Step_RMSE = RMSE(Ys, Ym)#,
+  #Ridge2_RMSE = RMSE(Yr2, Ym),
+  #Lasso2_RMSE = RMSE(Yl2, Ym)
+  # linear ridge lasso step
+)
+```
+
+On observe que les résultats des modèles sont assez similaires : un R² d'environ 0,65 et une RMSE d'environ 2,6 (ce qui correspond à une __erreur d'environ 10%__ pour la valeur maximale de *Slowness in trffic* 23,4). Ce sont des __résultats satisfaisants__. Il est cependant surprennant de voir que le meilleur modèle est le modèle de base, c'est-à-dire un modèle linéaire prenant en compte toutes les variables.
+Or, la première étude proposait plutôt de ne garder que quelques variables. Afin d'obtenir plus d'information sur ces données, on se propose d'étudier un autre modèle.
+
+# Classification
+
+Cet modèle possible consiste à créer une nouvelle variable binaire Y tel que $Y=1\!\!1_{Slowness\ in\ traffic\ >\ 3^{ème}\ quartile}$, et faire une régression logistique. Ainsi, on cherche un modèle capable de prédire s'il faut prendre sa voiture ou non. On obtient ainsi un __modèle de classification permettant de dire si le trafic est mauvais__ (considéré mauvais si supérieur au $3^{ème}$ quartile.)
+
+On obtient alors la matrice de confusion suivante :
+
+```{r, echo=F}
+# Régression logistique
+
+# Slowness_in_traffic
+#  Min.   : 3.40      
+#  1st Qu.: 7.40      
+#  Median : 9.00      
+#  Mean   :10.05      
+#  3rd Qu.:11.85      
+#  Max.   :23.40   
+
+Y_binaire = as.matrix(1*(Y>11.85))
+
+
+logistique = glm(Y_binaire~., data=X)
+Ylog = as.matrix(Xm)%*%as.matrix(coef(logistique))
+Ylog = 1*(Ylog>0.5)
+conf_mat = table(Y_binaire, Ylog)
+conf_mat
+```
+
+Ayant obtenu le nombre de faux positifs, faux négatifs, vrais positifs et vrais négatifs, il est aisé d'en déduire les critères d'évaluation suivants :
+```{r, echo=F}
+TP = conf_mat[2,2]
+TN = conf_mat[1,1]
+FP = conf_mat[2,1]
+FN = conf_mat[1,2]
+
+recall = TP/(TP+FN)
+precision = TP/(TP+FP)
+F1_score = 2*(precision*recall)/(precision+recall)
+
+data.frame(
+  recall = recall,
+  precision = precision,
+  F1_score = F1_score
+)
+```
+
+
+## Conclusion
+
+Afin __d'évaluer les performances__ des modèles de prédiction, nous utiliserons la méthode du __K-fold__. Les perfomances seront __évaluées à l'aide du coefficient de régression et de la somme des résidus__. Au final nous choisirons le modèle donnant le meilleur résultat. Ce modèle servira à prédire avec précision la densité du trafic.
+
+En parallèle, nous disposerons également de notre modèle de classification permettant de dire si le trafic sera très mauvais ou non.
